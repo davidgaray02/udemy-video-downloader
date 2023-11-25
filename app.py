@@ -1,29 +1,56 @@
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from moviepy.editor import VideoFileClip
 
-import time, os, re
+import time, os, re, json
 
 
 # Ruta al directorio de datos del usuario de Chrome
 user_data_dir = 'C:\\Users\\Usuario\\AppData\\Local\\Google\\Chrome\\User Data'
 
-# Configuración de opciones de Chrome
+# Configuración de opciones de Chrome y descarga PDF
 chrome_options = webdriver.ChromeOptions()
-chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
 chrome_options.binary_location = r'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 
+settings = {
+    "recentDestinations": [{
+            "id": "Save as PDF",
+            "origin": "local",
+            "account": "",
+        }],
+        "selectedDestinationId": "Save as PDF",
+        "version": 2
+    }
 
+
+chrome_options.add_argument('--kiosk-printing')
+chrome_options.add_argument('--enable-print-browser')
+chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
+chrome_options.add_argument('--start-maximized')
 # Inicia el navegador
 driver = webdriver.Chrome(options=chrome_options)
 
 
+
 ##############################################################################################################
+
+
+def formatear_url_curso(url):
+    if "?" in url:
+        url = url.split('?')[0]
+    else:
+        url = url.split('#')[0]    
+    return url
+
+def formatear_nombre_archivo(nombre_archivo):
+    nombre_archivo = re.sub(r'[<>:"/\|?*]', '-', nombre_archivo)
+    return nombre_archivo
+
 
 
 def esperar_pagina_cargada():
@@ -33,7 +60,20 @@ def esperar_pagina_cargada():
         wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
     except:
         pass
-    
+
+
+
+def descargar_pagina_pdf(nombre_pdf):
+    try:    
+        esperar_pagina_cargada()
+        driver.execute_script('document.title = "' + nombre_pdf + '"; window.print();')
+        time.sleep(3)
+        print("Se descargó pregunta como PDF")
+            
+    except Exception as e:
+        print(f"No se pudo descargar PDF. Error: {e}")
+        
+        
 
 def esperar_video_cargado():
     try:
@@ -78,9 +118,11 @@ def obtener_link_video():
 
 def crear_directorio_descargas():
     sufijo = 1
-    nombre_directorio = re.sub(r'[<>:"/\|?*]', '-', driver.title)
-    ruta_directorio = os.path.join(os.getcwd(), nombre_directorio)
+    nombre_curso = driver.find_element(by=By.XPATH, value="//a[contains(@class, 'ud-text-md header--header-text--3Z4po header--header-link--1gRxA truncate-with-tooltip--ellipsis--2-jEx')]")
+    nombre_directorio = formatear_nombre_archivo(nombre_curso.text)
+    print(nombre_directorio)
     
+    ruta_directorio = os.path.join(os.getcwd(), nombre_directorio)
     try:
         os.makedirs(ruta_directorio)
         nueva_ruta = ruta_directorio
@@ -93,9 +135,11 @@ def crear_directorio_descargas():
             except:
                 sufijo += 1
     
+    global ruta_directorio_videos, ruta_directorio_recursos, ruta_directorio_preguntas, ruta_archivo_links
     ruta_directorio_videos = os.path.join(nueva_ruta, "Videos")
     ruta_directorio_recursos = os.path.join(nueva_ruta, "Recursos")
-    ruta_directorio_preguntas = os.path.join(nueva_ruta, "Preguntas y Respuestas")
+    ruta_directorio_preguntas = os.path.join(nueva_ruta, "Preguntas")
+    ruta_archivo_links = os.path.join(nueva_ruta, "links_videos.txt")
     
     os.makedirs(ruta_directorio_videos)
     os.makedirs(ruta_directorio_recursos)
@@ -116,13 +160,9 @@ def crear_directorio_descargas():
 def adelantar_video():
     try:
         video = driver.find_element(By.CLASS_NAME, "video-player--video-player--2DBqU")
-
-        
         #driver.execute_script("arguments[0].requestFullscreen()", video)
-        print("Video maximizado")
-
-        
-        time.sleep(5)
+        #print("Video maximizado")
+        time.sleep(2)
         esperar_video_cargado()
         driver.execute_script("arguments[0].currentTime = arguments[0].duration * 0.9", video)
         print("Video adelantado un 80%")
@@ -133,7 +173,7 @@ def adelantar_video():
             driver.execute_script("arguments[0].play()", video)
             print("Video en play")
             
-        time.sleep(5)
+        time.sleep(6)
         driver.execute_script("document.exitFullscreen()")
         #print("Video minimizado")
         
@@ -151,7 +191,7 @@ def cerrar_popup():
         boton_cerrar.click()
         print("Popup cerrado correctamente")
     except:
-        print("No se encontró ningún popup")
+        print("No se encontró ningún popup para cerrar")
         
     
 def descargar_m3u8_mp4(url_m3u8, output_file):
@@ -167,49 +207,144 @@ def limpiar_recursos():
         print("Recursos limpiados")
     except Exception as e:
         print(f"No se pudo limpiar los recursos. Error: {e}")
+        
+        
+def descargar_preguntas_pdf():
+    driver.get(url_preguntas)
+    esperar_pagina_cargada()
+    time.sleep(1)
+    cerrar_popup()
+
+    preguntas = driver.find_elements(by=By.XPATH, value="//a[contains(@class, 'ud-heading-md ud-link-neutral question-list-question--title-link--1TykF')]")
+    while True:
+        try:
+            boton_ver_mas = driver.find_element(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-secondary ud-heading-md question-list--load-more-button--RCfUT')]")
+            boton_ver_mas.click()
+            time.sleep(1.5)
+        except NoSuchElementException:
+            break
 
 
+    links_preguntas = []
+    for pregunta in preguntas:
+        link_pregunta = pregunta.get_attribute('href')
+        links_preguntas.append(link_pregunta)
+
+    for link in links_preguntas:
+        driver.get(link)
+        esperar_pagina_cargada()
+        time.sleep(1)
+        titulo_pregunta = driver.find_element(by=By.XPATH, value="//h3[contains(@class, 'ud-heading-md question-details--title--1w2zn')]")
+        titulo_pregunta = formatear_nombre_archivo(titulo_pregunta.text)
+        descargar_pagina_pdf(titulo_pregunta)
+
+
+def descargar_recursos():
+    try:
+        boton_recursos = leccion.find_element(by=By.XPATH, value="//button[contains(@aria-label, 'Lista de recursos')]")
+        boton_recursos.click()
+        print("Dropdown recursos abierto")
+        time.sleep(2)
+
+        ruta_carpeta_recurso = os.path.join(ruta_directorio_recursos, nombre_leccion)
+        os.makedirs(ruta_carpeta_recurso)
+        
+        recursos = boton_recursos.find_elements(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-ghost ud-text-sm resource--resource--315Oy ud-block-list-item ud-block-list-item-small ud-block-list-item-neutral')]")
+        cantidad_recursos = len(recursos)
+        
+        boton_recursos.click()
+        print(f"CANTIDAD RECURSOS: {cantidad_recursos}")
+        
+        for i in range(1, 2):
+            boton_recursos.click()
+            time.sleep(2)
+            for recurso in recursos:
+                titulo_recurso = recurso.text
+                icono_recurso = recurso.find_element(By.TAG_NAME, 'use')
+                tipo_icono = icono_recurso.get_attribute('xlink:href')
+                recurso.click()
+                time.sleep(4)
+                if tipo_icono != "#icon-downloadable-resource":
+                    esperar_pagina_cargada()
+                    url_recurso = driver.current_url            
+                    ruta_recurso = os.path.join(ruta_carpeta_recurso, "links.txt")
+                    
+                    with open(ruta_recurso, "a") as archivo:
+                        archivo.write(f"{url_recurso}\n")
+
+                driver.switch_to.window(pestana_pricipal)
+
+                
+                print(f"Recurso '{titulo_recurso}' obtenido")
+                time.sleep(3)
+    except:
+        print(f"No encontró el botón 'Recursos' o los recursos dentro\nError:")
+        
+        
+        
 
 
 ##############################################################################################
 
 
 
-driver.get("https://www.udemy.com")
-esperar_pagina_cargada()
-driver.get("https://www.udemy.com/course/django-angular/learn/lecture/29164442#content")
-cerrar_popup()
 
-ruta_directorio_descargas = crear_directorio_descargas()
-ruta_archivo_links = os.path.join(ruta_directorio_descargas, "links_videos.txt")
-print(f"\nRuta archivo: {ruta_archivo_links}")
 
-# Iterar en cada video
+url_entrada = "https://www.udemy.com/course/python-3-az/learn/lecture/25206942#overview"
+url_base_curso = formatear_url_curso(url_entrada)
+url_contenido = url_base_curso + "#content"
+url_preguntas = url_base_curso + "#questions"
+
+# Obtener nombre del curos y crear directorio de descargas
+driver.get(url_base_curso)
 time.sleep(2)
-secciones = driver.find_elements(by=By.XPATH, value="//span[contains(@class, 'ud-accordion-panel-title')]")
+esperar_pagina_cargada()
+cerrar_popup()
+ruta_directorio_descargas = crear_directorio_descargas()
+driver.quit()
 
+# Reconfigurar el directorio de preguntas a directorio creado
+prefs = {
+    'printing.print_preview_sticky_settings.appState': json.dumps(settings),
+    'savefile.default_directory': ruta_directorio_preguntas
+}
+chrome_options.add_experimental_option('prefs', prefs)
+driver = webdriver.Chrome(options=chrome_options)
+
+# Descargar preguntas como PDF
+#descargar_preguntas_pdf()
+
+# Iterar en cada video y descargar
+driver.get(url_contenido)
+time.sleep(2)
+pestana_pricipal = driver.current_window_handle
+
+
+secciones = driver.find_elements(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-link ud-heading-md js-panel-toggler accordion-panel-module--panel-toggler--1RjML')]")
+secciones = secciones
 
 for seccion in secciones:
+    esta_expandido = seccion.get_attribute('aria-expanded')
     print(f"\n{seccion.text.upper()}")
     
-    if seccion != secciones[0]:
+    if esta_expandido == "false":
         seccion.click()
 
     time.sleep(2)
     
-    lecciones = driver.find_elements(by=By.XPATH, value="//span[contains(@class, 'curriculum-item-link--curriculum-item-title-content--1SLoR')]")
+    
+    lecciones = driver.find_elements(by=By.XPATH, value="//div[contains(@class, 'item-link item-link--common--RP3fp ud-custom-focus-visible')]")
     
     for leccion in lecciones:
         leccion.click()
         
-        nombre_leccion = leccion.text
-        print(f"\nLeccion: {nombre_leccion}")            
-        
+        nombre_leccion = leccion.find_element(by=By.XPATH, value="//span[contains(@class, 'curriculum-item-link--curriculum-item-title-content--1SLoR')]")
+        nombre_leccion = nombre_leccion.text
+        print(f"\nLeccion: {nombre_leccion}")      
+        descargar_recursos()      
+        '''
         time.sleep(1)
-        
         adelantar_video()
-        
-        time.sleep(2)
         
         video_link = obtener_link_video()
 
@@ -221,6 +356,7 @@ for seccion in secciones:
             ruta_carpeta_videos =  os.path.join(ruta_directorio_descargas, "Videos")
             ruta_video = os.path.join(ruta_carpeta_videos, f"{titulo_video}.mp4")
             
+            
             try:
                 video = VideoFileClip(video_link).volumex(1.1)
                 video.write_videofile(ruta_video,  codec='libx264', audio_codec='aac',  threads=12)
@@ -228,19 +364,11 @@ for seccion in secciones:
             except Exception as e:
                 print(f"No se puedo descargar el video. Error: {e}")
                 
-        
+        '''
         limpiar_recursos()
                 
     seccion.click()
 
-
-###########################---DESCARGAR VIDEOS---#####################################
-
-num_linea = 1
-
-
-
-
-        
 # Cierra el navegador cuando hayas terminado
 driver.quit()
+    
