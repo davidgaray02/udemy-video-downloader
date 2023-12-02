@@ -5,7 +5,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from moviepy.editor import VideoFileClip
 
 import time, os, re, json
 
@@ -92,7 +91,7 @@ def obtener_link_video():
     calidades = ['3840x2160', '1920x1080', '1200x720', '1024x576', '768x432', '640x360']
     
     for video in log_recursos:
-        if (video['name'].startswith("https://www.udemy.com/assets") or video['name'].startswith("https://mp4-c.udemycdn.com/") and "sprites" not in video['name']):
+        if (video['name'].startswith("https://www.udemy.com/assets") or (video['name'].startswith("https://mp4-c.udemycdn.com") and "sprites" not in video['name'])):
             videos_url.append(video['name'])
 
     if videos_url == []:
@@ -158,6 +157,7 @@ def crear_directorio_descargas():
 
 
 def adelantar_video():
+    esperar_video_cargado()
     try:
         video = driver.find_element(By.CLASS_NAME, "video-player--video-player--2DBqU")
         #driver.execute_script("arguments[0].requestFullscreen()", video)
@@ -173,7 +173,7 @@ def adelantar_video():
             driver.execute_script("arguments[0].play()", video)
             print("Video en play")
             
-        time.sleep(6)
+        time.sleep(10)
         driver.execute_script("document.exitFullscreen()")
         #print("Video minimizado")
         
@@ -193,13 +193,6 @@ def cerrar_popup():
     except:
         print("No se encontró ningún popup para cerrar")
         
-    
-def descargar_m3u8_mp4(url_m3u8, output_file):
-    try:
-        video = VideoFileClip(url_m3u8)
-        video.write_videofile(output_file)
-    except Exception as e:
-        print(f"No se pudo convertir el video. Error: {e}")
 
 def limpiar_recursos():
     try:
@@ -215,25 +208,26 @@ def descargar_preguntas_pdf():
     time.sleep(1)
     cerrar_popup()
 
-    preguntas = driver.find_elements(by=By.XPATH, value="//a[contains(@class, 'ud-heading-md ud-link-neutral question-list-question--title-link--1TykF')]")
     while True:
         try:
             boton_ver_mas = driver.find_element(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-secondary ud-heading-md question-list--load-more-button--RCfUT')]")
             boton_ver_mas.click()
-            time.sleep(1.5)
+            time.sleep(2)
         except NoSuchElementException:
             break
-
-
+    
+    preguntas = driver.find_elements(by=By.XPATH, value="//a[contains(@class, 'ud-heading-md ud-link-neutral question-list-question--title-link--1TykF')]")
     links_preguntas = []
+
     for pregunta in preguntas:
         link_pregunta = pregunta.get_attribute('href')
         links_preguntas.append(link_pregunta)
 
+    print(f"{len(links_preguntas)}PREGUNTAS: {links_preguntas}")
     for link in links_preguntas:
         driver.get(link)
         esperar_pagina_cargada()
-        time.sleep(1)
+        time.sleep(2.5)
         titulo_pregunta = driver.find_element(by=By.XPATH, value="//h3[contains(@class, 'ud-heading-md question-details--title--1w2zn')]")
         titulo_pregunta = formatear_nombre_archivo(titulo_pregunta.text)
         descargar_pagina_pdf(titulo_pregunta)
@@ -249,7 +243,7 @@ def descargar_recursos():
         ruta_carpeta_recurso = os.path.join(ruta_directorio_recursos, nombre_leccion)
         os.makedirs(ruta_carpeta_recurso)
         
-        recursos = boton_recursos.find_elements(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-ghost ud-text-sm resource--resource--315Oy ud-block-list-item ud-block-list-item-small ud-block-list-item-neutral')]")
+        recursos = leccion.find_elements(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-ghost ud-text-sm resource--resource--315Oy ud-block-list-item ud-block-list-item-small ud-block-list-item-neutral')]")
         cantidad_recursos = len(recursos)
         
         boton_recursos.click()
@@ -272,7 +266,7 @@ def descargar_recursos():
                     with open(ruta_recurso, "a") as archivo:
                         archivo.write(f"{url_recurso}\n")
 
-                driver.switch_to.window(pestana_pricipal)
+                #driver.switch_to.window(pestana_pricipal)
 
                 
                 print(f"Recurso '{titulo_recurso}' obtenido")
@@ -281,7 +275,46 @@ def descargar_recursos():
         print(f"No encontró el botón 'Recursos' o los recursos dentro\nError:")
         
         
+def obtener_links_videos():
+    driver.get(url_contenido)
+    secciones = driver.find_elements(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-link ud-heading-md js-panel-toggler accordion-panel-module--panel-toggler--1RjML')]")
+
+    # Plegar todas las secciones secciones
+    for seccion in secciones:
+        esta_expandido = seccion.get_attribute('aria-expanded')
         
+        if esta_expandido == "true":
+            seccion.click()
+        
+
+    for seccion in secciones[24:]:
+        seccion.click()
+        print(f"\n{seccion.text.upper()}")
+        time.sleep(1)
+        lecciones = driver.find_elements(by=By.XPATH, value="//span[contains(@class, 'curriculum-item-link--curriculum-item-title-content--1SLoR')]")
+        
+        for leccion in lecciones:
+            leccion.click()
+            
+            #nombre_leccion = leccion.find_element(by=By.XPATH, value="//span[contains(@class, 'curriculum-item-link--curriculum-item-title-content--1SLoR')]")
+            nombre_leccion = leccion.text
+            print(f"\nLeccion: {nombre_leccion}")      
+            #descargar_recursos()      
+            
+            time.sleep(2)
+            adelantar_video()
+            
+            video_link = obtener_link_video()
+
+            with open(ruta_archivo_links, "a") as archivo_links:
+                archivo_links.write(f"{nombre_leccion}\n")
+                archivo_links.write(f"{video_link}\n")
+                
+            
+            limpiar_recursos()
+                    
+        seccion.click()
+
 
 
 ##############################################################################################
@@ -290,7 +323,7 @@ def descargar_recursos():
 
 
 
-url_entrada = "https://www.udemy.com/course/python-3-az/learn/lecture/25206942#overview"
+url_entrada = "https://www.udemy.com/course/django-angular/learn/lecture/29066688#content"
 url_base_curso = formatear_url_curso(url_entrada)
 url_contenido = url_base_curso + "#content"
 url_preguntas = url_base_curso + "#questions"
@@ -312,62 +345,13 @@ chrome_options.add_experimental_option('prefs', prefs)
 driver = webdriver.Chrome(options=chrome_options)
 
 # Descargar preguntas como PDF
-#descargar_preguntas_pdf()
+descargar_preguntas_pdf()
 
-# Iterar en cada video y descargar
-driver.get(url_contenido)
-time.sleep(2)
-pestana_pricipal = driver.current_window_handle
+# Obtener todos los enlaces de descaga con sus titulos
+#obtener_links_videos()
 
 
-secciones = driver.find_elements(by=By.XPATH, value="//button[contains(@class, 'ud-btn ud-btn-large ud-btn-link ud-heading-md js-panel-toggler accordion-panel-module--panel-toggler--1RjML')]")
-secciones = secciones
 
-for seccion in secciones:
-    esta_expandido = seccion.get_attribute('aria-expanded')
-    print(f"\n{seccion.text.upper()}")
-    
-    if esta_expandido == "false":
-        seccion.click()
-
-    time.sleep(2)
-    
-    
-    lecciones = driver.find_elements(by=By.XPATH, value="//div[contains(@class, 'item-link item-link--common--RP3fp ud-custom-focus-visible')]")
-    
-    for leccion in lecciones:
-        leccion.click()
-        
-        nombre_leccion = leccion.find_element(by=By.XPATH, value="//span[contains(@class, 'curriculum-item-link--curriculum-item-title-content--1SLoR')]")
-        nombre_leccion = nombre_leccion.text
-        print(f"\nLeccion: {nombre_leccion}")      
-        descargar_recursos()      
-        '''
-        time.sleep(1)
-        adelantar_video()
-        
-        video_link = obtener_link_video()
-
-        with open(ruta_archivo_links, "a") as archivo_links:
-            archivo_links.write(f"{nombre_leccion}\n")
-            archivo_links.write(f"{video_link}\n")
-            
-            titulo_video = re.sub(r'[<>:"/\|?*]', '-', nombre_leccion)
-            ruta_carpeta_videos =  os.path.join(ruta_directorio_descargas, "Videos")
-            ruta_video = os.path.join(ruta_carpeta_videos, f"{titulo_video}.mp4")
-            
-            
-            try:
-                video = VideoFileClip(video_link).volumex(1.1)
-                video.write_videofile(ruta_video,  codec='libx264', audio_codec='aac',  threads=12)
-                
-            except Exception as e:
-                print(f"No se puedo descargar el video. Error: {e}")
-                
-        '''
-        limpiar_recursos()
-                
-    seccion.click()
 
 # Cierra el navegador cuando hayas terminado
 driver.quit()
